@@ -7,13 +7,35 @@ from MySqlParser import MySqlParser
 from MySqlParserListener import MySqlParserListener
 import sys
 
+
+class CaseChangingCharInputStream(InputStream):
+    def __init__(self, data, upper=True):
+        super(CaseChangingCharInputStream, self).__init__(data)
+        self.upper = upper
+
+    def LA(self, pos):
+        value = super(CaseChangingCharInputStream, self).LA(pos)
+        if 0 <= value < 256:
+            if pos <= 0: return value
+            str_value = chr(value)
+            return ord(str_value.upper()) if self.upper else ord(str_value.lower())
+        else:
+            return value
+
+
+class CaseChangingCharFileStream(FileStream, CaseChangingCharInputStream):
+    def __init__(self, file, upper=True):
+        super(CaseChangingCharFileStream, self).__init__(file)
+        self.upper = upper
+
+
 class CustomListener(MySqlParserListener):
-    def enterRoot(self, ctx):
+    def _enterRoot(self, ctx):
         print "root", ctx.getText()
-    def enterSqlStatements(self, ctx):
+    def _enterSqlStatements(self, ctx):
         print "sqls", ctx.getText()
     def enterSqlStatement(self, ctx):
-        print "sql", ctx.getText(), type(ctx)
+        print "sql", ctx.getText()
         for child in ctx.getChildren():
             if isinstance(child, MySqlParser.DmlStatementContext):
                 self.handleDml(child)
@@ -32,7 +54,9 @@ class CustomListener(MySqlParserListener):
 
     def stringifyContext(self, ctx):
         tmp = list()
-        if not isinstance(ctx, tree.Tree.TerminalNodeImpl):
+        if isinstance(ctx, MySqlParser.FullColumnNameContext):
+            return ctx.getText()
+        elif not isinstance(ctx, tree.Tree.TerminalNodeImpl):
             for child in ctx.getChildren():
                 child_str = self.stringifyContext(child)
                 if child_str:
@@ -42,8 +66,6 @@ class CustomListener(MySqlParserListener):
             return ctx.getText()
 
     def handleDml(self, ctx):
-        #print "dml", type(ctx)
-        #if isinstance(ctx, MySqlParser.DmlStatementContext)
         child = ctx.getChild(0)
         if isinstance(child, MySqlParser.SimpleSelectContext):
             self.handleSelect(child)
@@ -53,44 +75,52 @@ class CustomListener(MySqlParserListener):
             print type(child)
     
     def handleSelect(self, ctx):
-        print "handle select", ctx.getText()
+        print "handle select", self.stringifyContext(ctx)
 
     def handleUpdate(self, ctx):
         ctx = ctx.getChild(0)
-        if isinstance(ctx, MySqlParser.SingleUpdateStatementContext):
-            children = list(ctx.getChildren())
-            # Keyword: UPDATE
-            print children[0].getText()
-            # tableName
-            print children[1].getText()
-            # Keyword: SET
-            print children[2].getText()
-            # updatedElements
-            print children[3].getText()
-            if len(children[4:]) > 0:
-                for child in children[4:]:
-                    print self.stringifyContext(child)
-                return
+        print "handle update", self.stringifyContext(ctx)
+        children = list(ctx.getChildren())
+        idx = 0
+        for child in children[idx:]:
+            idx += 1
+            if isinstance(child, MySqlParser.TableNameContext):
+                tb_name = child.getText()
+                break
+            elif isinstance(child, MySqlParser.TableSourcesContext):
+                tb_name = self.stringifyContext(child)
+                break
+            elif isinstance(child, tree.Tree.TerminalNodeImpl):
+                continue
+        for child in children[idx:]:
+            idx += 1
+            if isinstance(child, tree.Tree.TerminalNodeImpl):
+                continue
+            elif isinstance(child, MySqlParser.UpdatedElementsContext):
+                update_element = self.stringifyContext(child)
+                break
+        where, orderby, limit = self.parseWhereOrderbyLimit(children[idx:])
+        
+        print "-- BACKUP SQL FOR UPDATE --"
+        print "SELECT * FROM", tb_name, "WHERE", where, orderby, limit
 
     def parseWhereOrderbyLimit(self, ctxs):
         """
-        To be fixed
         """
         where = None
         limit = None
         orderby = None
         if len(ctxs) > 4:
-            print "Unexpected clause", ctxs
+            print "Unexpected where/orderby/limit clause", ctxs
             return
         if isinstance(ctxs[-1], MySqlParser.LimitClauseContext):
-            limit = self.formatTree(ctxs[-1])
-            print ctxs[0:-1]
-            ctxs = self.formatTree(ctxs[0:-1])
+            limit = self.stringifyContext(ctxs[-1])
+            ctxs = ctxs[0:-1]
         if isinstance(ctxs[-1], MySqlParser.OrderByClauseContext):
-            orderby = self.formatTree(ctxs[-1])
-            ctxs = self.formatTree(ctxs[0:-1])
+            orderby = self.stringifyContext(ctxs[-1])
+            ctxs = ctxs[0:-1]
         if len(ctxs) == 2:
-            where = self.formatTree(ctxs[-1])
+            where = self.stringifyContext(ctxs[-1])
         return where, orderby, limit
         
 def handleTree(tree):
@@ -104,7 +134,9 @@ def handleTree(tree):
 
 def main():
     #lexer = MySqlLexer(StdinStream())
-    lexer = MySqlLexer(FileStream(sys.argv[1]))
+    fs = CaseChangingCharFileStream(sys.argv[1])
+    # print fs.__class__.__mro__
+    lexer = MySqlLexer(fs)
     stream = CommonTokenStream(lexer)
     parser = MySqlParser(stream)
     tree = parser.root()
