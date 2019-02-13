@@ -50,13 +50,43 @@ class CustomListener(MySqlParserListener):
         for child in ctx.getChildren():
             self.printContent(child, i+1)
 
-    def printContextTree(self, ctx, i):
+    def printContextTree(self, ctx, i=0, siblings=None):
+        if siblings == None:
+            siblings = []
         if isinstance(ctx, tree.Tree.TerminalNodeImpl):
-            print "  " * (i+1) + "|_" + ctx.getText()
+            s = u""
+            for j in range(i):
+                if j in siblings:
+                    s += u"│   "
+                else:
+                    s += u"    "
+            s += u"└── "
+            s += ctx.getText().encode('utf8')
+            print s
             return
-        for child in ctx.getChildren():
-            print "  " * (i+1) + "|_" + str(type(ctx))
-            self.printContextTree(child, i+1)
+        idx = 0
+        child_arr = list(ctx.getChildren())
+        for child in child_arr:
+            has_siblings = True if idx < len(child_arr)-1 else False
+            s = u""
+            for j in range(i):
+                if j in siblings:
+                    s += u"│   "
+                else:
+                    s += u"    "
+            if has_siblings:
+                s += u"├── "
+            else:
+                s += u"└── "
+            s += str(type(child)).encode('utf8')
+            print s
+            sub_siblings = list(siblings)
+            if has_siblings:
+                sub_siblings.append(i)
+                self.printContextTree(child, i+1, sub_siblings)
+            else:
+                self.printContextTree(child, i+1, sub_siblings)
+            idx += 1
 
     def stringifyContext(self, ctx):
         tmp = list()
@@ -73,7 +103,6 @@ class CustomListener(MySqlParserListener):
 
     def handleDml(self, ctx):
         child = ctx.getChild(0)     # DmlStatementContext has one child
-
         if isinstance(child, MySqlParser.SimpleSelectContext):
             self.handleSelect(child)
         elif isinstance(child, MySqlParser.UpdateStatementContext):
@@ -85,7 +114,7 @@ class CustomListener(MySqlParserListener):
         print "handle select", self.stringifyContext(ctx)
 
     def handleUpdate(self, ctx):
-        # self.printContextTree(ctx, 1)
+        self.printContextTree(ctx)
         ctx = ctx.getChild(0)
         print "handle update", self.stringifyContext(ctx)
         children = list(ctx.getChildren())
