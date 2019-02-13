@@ -39,9 +39,7 @@ class CustomListener(MySqlParserListener):
         for child in ctx.getChildren():
             if isinstance(child, MySqlParser.DmlStatementContext):
                 self.handleDml(child)
-                #print "dml", child
-                #self.printContent(child, 0)
-        # print ctx.getChild(0).getText()
+
     def _enterFromClause(self, ctx):
         print ctx.getText()
 
@@ -51,6 +49,14 @@ class CustomListener(MySqlParserListener):
             return
         for child in ctx.getChildren():
             self.printContent(child, i+1)
+
+    def printContextTree(self, ctx, i):
+        if isinstance(ctx, tree.Tree.TerminalNodeImpl):
+            print "  " * (i+1) + "|_" + ctx.getText()
+            return
+        for child in ctx.getChildren():
+            print "  " * (i+1) + "|_" + str(type(ctx))
+            self.printContextTree(child, i+1)
 
     def stringifyContext(self, ctx):
         tmp = list()
@@ -66,7 +72,8 @@ class CustomListener(MySqlParserListener):
             return ctx.getText()
 
     def handleDml(self, ctx):
-        child = ctx.getChild(0)
+        child = ctx.getChild(0)     # DmlStatementContext has one child
+
         if isinstance(child, MySqlParser.SimpleSelectContext):
             self.handleSelect(child)
         elif isinstance(child, MySqlParser.UpdateStatementContext):
@@ -78,6 +85,7 @@ class CustomListener(MySqlParserListener):
         print "handle select", self.stringifyContext(ctx)
 
     def handleUpdate(self, ctx):
+        # self.printContextTree(ctx, 1)
         ctx = ctx.getChild(0)
         print "handle update", self.stringifyContext(ctx)
         children = list(ctx.getChildren())
@@ -99,6 +107,7 @@ class CustomListener(MySqlParserListener):
             elif isinstance(child, MySqlParser.UpdatedElementsContext):
                 update_element = self.stringifyContext(child)
                 break
+
         where, orderby, limit = self.parseWhereOrderbyLimit(children[idx:])
         
         print "-- BACKUP SQL FOR UPDATE --"
